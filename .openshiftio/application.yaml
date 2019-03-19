@@ -1,0 +1,338 @@
+apiVersion: v1
+kind: Template
+parameters:
+  - name: SOURCE_REPOSITORY_URL
+    description: The source URL for the application
+    displayName: Source URL
+    value: 'https://github.com/dummy_org/dummy_repo'
+    required: true
+  - name: GITHUB_WEBHOOK_SECRET
+    description: The secret used to configure a GitHub webhook
+    displayName: GitHub Webhook Secret
+    required: true
+    from: '[a-zA-Z0-9]{40}'
+    generate: expression
+objects:
+  - kind: ImageStream
+    apiVersion: image.openshift.io/v1
+    metadata:
+      name: go-toolset-7-centos7
+      creationTimestamp: null
+      labels:
+        app: placid-pies
+    spec:
+      lookupPolicy:
+        local: false
+      tags:
+        - name: latest
+          from:
+            kind: DockerImage
+            name: centos/go-toolset-7-centos7
+          generation: null
+          importPolicy: {}
+          referencePolicy:
+            type: ''
+    status:
+      dockerImageRepository: ''
+  - kind: ImageStream
+    apiVersion: image.openshift.io/v1
+    metadata:
+      name: placid-pies
+      creationTimestamp: null
+      labels:
+        app: placid-pies
+    spec:
+      lookupPolicy:
+        local: false
+    status:
+      dockerImageRepository: ''
+  - kind: BuildConfig
+    apiVersion: build.openshift.io/v1
+    metadata:
+      name: placid-pies
+      creationTimestamp: null
+      labels:
+        app: placid-pies
+    spec:
+      triggers:
+        - type: GitHub
+          github:
+            secret: '${GITHUB_WEBHOOK_SECRET}'
+        - type: ConfigChange
+        - type: ImageChange
+          imageChange: {}
+      source:
+        type: Git
+        git:
+          uri: '${SOURCE_REPOSITORY_URL}'
+      strategy:
+        type: Source
+        sourceStrategy:
+          from:
+            kind: ImageStreamTag
+            name: 'go-toolset-7-centos7:latest'
+          incremental: true
+          env:
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: placid-pies-database-bind
+                  key: uri
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: placid-pies-database-bind
+                  key: user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: placid-pies-database-bind
+                  key: password
+      output:
+        to:
+          kind: ImageStreamTag
+          name: 'placid-pies:latest'
+      resources: {}
+      postCommit: {}
+      nodeSelector: null
+    status:
+      lastVersion: 0
+  - kind: DeploymentConfig
+    apiVersion: apps.openshift.io/v1
+    metadata:
+      name: placid-pies
+      creationTimestamp: null
+      labels:
+        app: placid-pies
+    spec:
+      strategy:
+        resources: {}
+      triggers:
+        - type: ConfigChange
+        - type: ImageChange
+          imageChangeParams:
+            automatic: true
+            containerNames:
+              - placid-pies
+            from:
+              kind: ImageStreamTag
+              name: 'placid-pies:latest'
+      replicas: 1
+      test: false
+      selector:
+        app: placeholder-app-label-d46881878f594a2dadfd963843452aab
+        deploymentconfig: placid-pies
+      template:
+        metadata:
+          creationTimestamp: null
+          labels:
+            app: placeholder-app-label-d46881878f594a2dadfd963843452aab
+            deploymentconfig: placid-pies
+        spec:
+          containers:
+            - name: placid-pies
+              image: 'placid-pies:latest'
+              resources:
+                limits:
+                  memory: 1024Mi
+              env:
+                - name: DB_HOST
+                  valueFrom:
+                    secretKeyRef:
+                      name: placid-pies-database-bind
+                      key: uri
+                - name: DB_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: placid-pies-database-bind
+                      key: user
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: placid-pies-database-bind
+                      key: password
+              readinessProbe:
+                httpGet:
+                  path: /health
+                  port: 8080
+                  scheme: HTTP
+                initialDelaySeconds: 5
+                timeoutSeconds: 3
+                periodSeconds: 10
+                failureThreshold: 10
+              livenessProbe:
+                httpGet:
+                  path: /health
+                  port: 8080
+                  scheme: HTTP
+                initialDelaySeconds: 5
+                timeoutSeconds: 3
+    status:
+      latestVersion: 0
+      observedGeneration: 0
+      replicas: 0
+      updatedReplicas: 0
+      availableReplicas: 0
+      unavailableReplicas: 0
+  - kind: Service
+    apiVersion: v1
+    metadata:
+      name: placid-pies
+      labels:
+        app: placid-pies
+    spec:
+      ports:
+        - name: 8080-tcp
+          protocol: TCP
+          port: 8080
+          targetPort: 8080
+      selector:
+        app: placid-pies
+        deploymentconfig: placid-pies
+  - apiVersion: v1
+    kind: Route
+    metadata:
+      name: placid-pies
+      labels:
+        app: placid-pies
+    spec:
+      port:
+        targetPort: 8080-tcp
+      to:
+        kind: Service
+        name: placid-pies
+  - kind: Secret
+    apiVersion: v1
+    metadata:
+      name: placid-pies-database-bind
+      labels:
+        app: placid-pies
+    stringData:
+      uri: placid-pies-database
+      database: my_data
+      user: dbuser
+      password: secret
+  - kind: ImageStreamTag
+    apiVersion: image.openshift.io/v1
+    metadata:
+      name: 'placid-pies-database:5.7'
+      creationTimestamp: null
+      labels:
+        app: placid-pies
+    tag:
+      name: '5.7'
+      annotations: null
+      from:
+        kind: DockerImage
+        name: 'docker-registry.default.svc:5000/openshift/mysql:5.7'
+      generation: null
+      importPolicy: {}
+      referencePolicy:
+        type: ''
+    generation: 0
+    lookupPolicy:
+      local: false
+    image:
+      metadata:
+        creationTimestamp: null
+      dockerImageMetadata: null
+      dockerImageLayers: null
+  - kind: DeploymentConfig
+    apiVersion: apps.openshift.io/v1
+    metadata:
+      name: placid-pies-database
+      creationTimestamp: null
+      labels:
+        app: placid-pies
+    spec:
+      strategy:
+        resources: {}
+      triggers:
+        - type: ConfigChange
+        - type: ImageChange
+          imageChangeParams:
+            automatic: true
+            containerNames:
+              - placid-pies-database
+            from:
+              kind: ImageStreamTag
+              namespace: openshift
+              name: 'mysql:5.7'
+      replicas: 1
+      test: false
+      selector:
+        app: placeholder-app-label-d46881878f594a2dadfd963843452aab
+        deploymentconfig: placid-pies-database
+      template:
+        metadata:
+          creationTimestamp: null
+          labels:
+            app: placeholder-app-label-d46881878f594a2dadfd963843452aab
+            deploymentconfig: placid-pies-database
+        spec:
+          containers:
+            - name: placid-pies-database
+              image: 'docker-registry.default.svc:5000/openshift/mysql:5.7'
+              ports:
+                - containerPort: 3306
+                  protocol: TCP
+              resources:
+                limits:
+                  memory: 512Mi
+              env:
+                - name: MYSQL_ROOT_PASSWORD
+                  value: verysecretrootpassword
+                - name: MYSQL_DATABASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: placid-pies-database-bind
+                      key: database
+                - name: MYSQL_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: placid-pies-database-bind
+                      key: user
+                - name: MYSQL_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: placid-pies-database-bind
+                      key: password
+              livenessProbe:
+                initialDelaySeconds: 30
+                tcpSocket:
+                  port: 3306
+              readinessProbe:
+                initialDelaySeconds: 5
+                exec:
+                  command:
+                    - /bin/sh
+                    - '-i'
+                    - '-c'
+                    - >-
+                      MYSQL_PWD="$MYSQL_PASSWORD" mysql -h 127.0.0.1 -u
+                      $MYSQL_USER -D $MYSQL_DATABASE -e 'SELECT 1'
+    status:
+      latestVersion: 0
+      observedGeneration: 0
+      replicas: 0
+      updatedReplicas: 0
+      availableReplicas: 0
+      unavailableReplicas: 0
+  - kind: Service
+    apiVersion: v1
+    metadata:
+      name: placid-pies-database
+      creationTimestamp: null
+      labels:
+        app: placid-pies
+    spec:
+      ports:
+        - name: 3306-tcp
+          protocol: TCP
+          port: 3306
+          targetPort: 3306
+      selector:
+        app: placeholder-app-label-d46881878f594a2dadfd963843452aab
+        deploymentconfig: placid-pies-database
+    status:
+      loadBalancer: {}
